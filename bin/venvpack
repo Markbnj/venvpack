@@ -1,0 +1,164 @@
+#!/bin/bash
+
+# A bash script to package a python virtualenv into a transportable
+# file that can be moved to another machine and file system.
+#
+# Copyright Mark Betz, All Rights Reserved
+#
+#
+# Project home page: https://github.com/Markbnj/venvpack
+
+version="0.1.0-beta"
+venv_root="${VIRTUALENVWRAPPER_HOOK_DIR}/"
+venv=
+projectpath=
+projectdir=
+outfile=
+debug=false
+cwd=$(pwd)
+no_prompt=false
+
+show_help() {
+    echo "venvpack ${version}"
+    echo
+    echo "USAGE: venvpack [OPTION]... [VIRTUALENV]"
+    echo
+    echo "Package a python virtualenv into a single transportable file that"
+    echo "can be moved between file systems."
+    echo
+    echo "If VIRTUALENV is not supplied and a virtualenv is currently active"
+    echo "then that venv will be used."
+    echo
+    echo "If the -o|--outfile option is not supplied the output file will be"
+    echo "given the same name as the source virtualenv."
+    echo
+    echo "Example:"
+    echo "    venvpack testenv"
+    echo
+    echo "Packages the testenv virtualenv into 'testenv.venv' in the current"
+    echo "working directory."
+    echo
+    echo "Options:"
+    printf "\t-d, --debug\t\t\t\tPrint diagnostic information after packaging.\n"
+    printf "\t-o, --outfile=PATH\t\tSpecify the output file name and path.\n"
+    printf "\t-y, --no-prompt\t\t\tDo not prompt for confirmation before building.\n"
+    echo
+    if [ ! -z "${1}" ]; then
+        exit $1
+    else
+        exit 0
+    fi
+}
+
+# check to be sure we were passed a valid venv, otherwise detect
+# the current active venv, set venv to the full path to the environment
+ensure_venv() {
+    if [ ! -z "${venv}" ]; then
+        if [ ! -d "${venv_root}${venv}" ]; then
+            echo "Error: virtual env '${venv}' not found at ${venv_root}"
+            exit 1
+        fi
+    else
+        if [ -z "${VIRTUAL_ENV}" ]; then
+            echo "Error: virtual env not specified and no active virtual environment"
+            echo "found."
+            echo
+            show_help 1
+        else
+            venv=$(basename ${VIRTUAL_ENV})
+        fi
+    fi
+    # get the project directory from the virtualenv
+    projectpath=$(cat ${venv_root}${venv}/${VIRTUALENVWRAPPER_PROJECT_FILENAME})
+    if [ -z "${projectpath}" ]; then
+        echo "Error: could not find project home for env $venv"
+        exit 1
+    fi
+    projectdir=$(basename ${projectpath})
+}
+
+make_package() {
+    echo "Not yet."
+}
+
+# set tabs = 4
+tabs 4
+
+# parse out the options
+OPTS=$(getopt -o do:y --long outfile: -- "$@")
+if [[ $? -ne 0 ]]; then
+    echo "Error: failed to parse command line options."
+    exit 1
+fi
+
+eval set -- "$OPTS"
+while true; do
+    case "$1" in
+        -d|--debug)
+            debug=true
+            shift
+            ;;
+        -o|--outfile)
+            outfile="$2"
+            shift; shift
+            ;;
+        -y|--no-prompt)
+            no_prompt=true
+            shift
+            ;;
+        --)
+            shift
+            if [ ! -z "$1" ]; then
+                venv="$1"
+            fi
+            break
+            ;;
+        *)
+            echo "Error: unknown option '${1}'"
+            help 1
+            ;;
+    esac
+done
+
+# request the user to confirm the make command and exit on any
+# choice other than yes.
+confirm_make() {
+    echo "Create virtualenv package"
+    echo "----------------------------------"
+    echo "venv name: ${venv}"
+    echo "venv path: ${venv_root}${venv}"
+    echo "project path: ${projectpath}"
+    echo "package name: ${outfile}"
+    echo
+    read -p "Create venv package now (y/N)?" choice
+    case "$choice" in
+        y|Y) return;;
+        *) exit 0;;
+    esac
+}
+
+echo
+echo "venvpack ${version}"
+echo
+ensure_venv
+
+# figure out the package name
+if [ -z "${outfile}" ]; then
+    outfile="${venv}.venv"
+else
+    if [ -d "$outfile" ]; then
+        if [[ ${outfile} != "*/" ]]; then
+            outfile="${outfile}/${venv}.venv"
+        else
+            outfile="${outfile}${venv}.venv"
+        fi
+    else
+        if [[ ${outfile} != "*.*" ]]; then
+            outfile="${outfile}.venv"
+        fi
+    fi
+fi
+if [ "${no_prompt}" = "false" ]; then
+    confirm_make
+fi
+make_package
