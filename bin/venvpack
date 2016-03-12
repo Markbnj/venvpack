@@ -17,6 +17,8 @@ outfile=
 debug=false
 cwd=$(pwd)
 no_prompt=false
+venv_path_placer="##VENVPACK_VENV##"
+project_path_placer="##VENVPACK_PROJ##"
 
 show_help() {
     echo "venvpack ${version}"
@@ -69,16 +71,99 @@ ensure_venv() {
         fi
     fi
     # get the project directory from the virtualenv
-    projectpath=$(cat ${venv_root}${venv}/${VIRTUALENVWRAPPER_PROJECT_FILENAME})
+    projectpath=$( cat ${venv_root}${venv}/${VIRTUALENVWRAPPER_PROJECT_FILENAME} )
     if [ -z "${projectpath}" ]; then
         echo "Error: could not find project home for env $venv"
         exit 1
     fi
-    projectdir=$(basename ${projectpath})
+    projectdir=$( basename ${projectpath} )
 }
 
-make_package() {
-    echo "Not yet."
+# the following two functions replace hard coded interpreter and
+# project paths with a placeholder, and in turn replace the placeholder
+# with the proper paths when the venv is extracted.
+patch_paths_out() {
+    echo "Patching paths in $1 ..."
+    files=$( grep ${venv_root} -l --recursive --exclude=*.pyc $1 )
+    for file in $files; do
+        echo "Patching $file ..."
+        sed -i"" -e "s:${venv_root}:${venv_path_placer}:g" $file
+    done
+    projectbase=$( dirname ${projectpath} )
+    files=$( grep ${projectbase} -l --recursive --exclude=*.pyc $1 )
+    for file in $files; do
+        echo "Patching $file ..."
+        sed -i"" -e "s:${projectbase}:${project_path_placer}:g" $file
+    done
+}
+
+patch_paths_in() {
+    echo "Patching paths in $1 ..."
+    files=$( grep ${venv_path_placer} -l --recursive --exclude=*.pyc $1 )
+    for file in $files; do
+        echo "Patching $file ..."
+        sed -i"" -e "s:${venv_path_placer}:${venv_root}:g" $file
+    done
+    projectbase=$( dirname ${projectpath} )
+    files=$( grep ${project_path_placer} -l --recursive --exclude=*.pyc $1 )
+    for file in $files; do
+        echo "Patching $file ..."
+        sed -i"" -e "s:${project_path_placer}:${projectbase}:g" $file
+    done
+}
+
+pack_venv() {
+    tmpdir=$(mktemp -d)
+
+    # since we will not patch anything in the project files just tar them right
+    # into the temp folder
+    if [ -d "${projectpath}" ]; then
+        echo "Packing ${projectpath} to ${tmpdir} ..."
+        if $( tar --directory=${projectpath}/.. -cf ${tmpdir}/${projectdir}.tar ./${projectdir} --exclude=*.pyc ); then
+            echo "${projectpath} complete"
+        else
+            echo "Error: failed to archive ${projectpath} to ${tmpdir}/${projectdir}; check directory and file permissions."
+            exit 1
+        fi
+    else
+        echo "Warning: ${projectpath} not found; skipping"
+    fi
+
+    echo "Staging ${venv_root}${venv} to ${tmpdir} ..."
+    if $( tar -c --directory=${venv_root} ./${venv} --exclude=*.pyc | tar -x --directory=${tmpdir} ); then
+
+        echo "Patching paths in ${venv_root}${venv} ..."
+        files=$( grep ${venv_root} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
+        for file in $files; do
+            echo "Patching $file ..."
+            sed -i"" -e "s:${venv_root}:${venv_path_placer}:g" $file
+        done
+        projectbase=$( dirname ${projectpath} )
+        files=$( grep ${projectbase} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
+        for file in $files; do
+            echo "Patching $file ..."
+            sed -i"" -e "s:${projectbase}:${project_path_placer}:g" $file
+        done
+
+        echo "Packing ${tmpdir}/${venv} to ${tmpdir} ..."
+        if $( tar --directory=${tmpdir} -cf ${tmpdir}/${venv}.sys.tar ./${venv} ); then
+            echo "${tmpdir}/${venv} complete"
+            echo "Removing temporary files ..."
+            if $(rm -rf ${tmpdir}/${venv}); then
+                echo "Temporary files in ${tmpdir}/${venv} removed"
+            else
+                echo "Warning: unable to remove staging folder ${tmpdir}/${venv}"
+            fi
+        else
+            echo "Error: failed to pack ${tmpdir}/${venv}; check directory and file permissions."
+            exit 1
+        fi
+    else
+        echo "Error: failed to copy ${venv_root}${venv} to ${tmpdir}; check directory and file permissions."
+        exit 1
+    fi
+
+    echo "System files completed"
 }
 
 # set tabs = 4
@@ -161,4 +246,4 @@ fi
 if [ "${no_prompt}" = "false" ]; then
     confirm_make
 fi
-make_package
+pack_venv
