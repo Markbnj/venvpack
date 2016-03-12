@@ -13,6 +13,7 @@ venv_root="${VIRTUALENVWRAPPER_HOOK_DIR}/"
 venv=
 projectpath=
 projectdir=
+projectbase=
 outfile=
 debug=false
 cwd=$(pwd)
@@ -77,39 +78,7 @@ ensure_venv() {
         exit 1
     fi
     projectdir=$( basename ${projectpath} )
-}
-
-# the following two functions replace hard coded interpreter and
-# project paths with a placeholder, and in turn replace the placeholder
-# with the proper paths when the venv is extracted.
-patch_paths_out() {
-    echo "Patching paths in $1 ..."
-    files=$( grep ${venv_root} -l --recursive --exclude=*.pyc $1 )
-    for file in $files; do
-        echo "Patching $file ..."
-        sed -i"" -e "s:${venv_root}:${venv_path_placer}:g" $file
-    done
     projectbase=$( dirname ${projectpath} )
-    files=$( grep ${projectbase} -l --recursive --exclude=*.pyc $1 )
-    for file in $files; do
-        echo "Patching $file ..."
-        sed -i"" -e "s:${projectbase}:${project_path_placer}:g" $file
-    done
-}
-
-patch_paths_in() {
-    echo "Patching paths in $1 ..."
-    files=$( grep ${venv_path_placer} -l --recursive --exclude=*.pyc $1 )
-    for file in $files; do
-        echo "Patching $file ..."
-        sed -i"" -e "s:${venv_path_placer}:${venv_root}:g" $file
-    done
-    projectbase=$( dirname ${projectpath} )
-    files=$( grep ${project_path_placer} -l --recursive --exclude=*.pyc $1 )
-    for file in $files; do
-        echo "Patching $file ..."
-        sed -i"" -e "s:${project_path_placer}:${projectbase}:g" $file
-    done
 }
 
 pack_venv() {
@@ -129,22 +98,25 @@ pack_venv() {
         echo "Warning: ${projectpath} not found; skipping"
     fi
 
+    # now stage the venv files to tmp so we can patch the paths with a
+    # placeholder
     echo "Staging ${venv_root}${venv} to ${tmpdir} ..."
     if $( tar -c --directory=${venv_root} ./${venv} --exclude=*.pyc | tar -x --directory=${tmpdir} ); then
 
+        # patch the paths
         echo "Patching paths in ${venv_root}${venv} ..."
         files=$( grep ${venv_root} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
         for file in $files; do
             echo "Patching $file ..."
             sed -i"" -e "s:${venv_root}:${venv_path_placer}:g" $file
         done
-        projectbase=$( dirname ${projectpath} )
         files=$( grep ${projectbase} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
         for file in $files; do
             echo "Patching $file ..."
             sed -i"" -e "s:${projectbase}:${project_path_placer}:g" $file
         done
 
+        # tar into temp directory
         echo "Packing ${tmpdir}/${venv} to ${tmpdir} ..."
         if $( tar --directory=${tmpdir} -cf ${tmpdir}/${venv}.sys.tar ./${venv} ); then
             echo "${tmpdir}/${venv} complete"
@@ -163,7 +135,22 @@ pack_venv() {
         exit 1
     fi
 
-    echo "System files completed"
+    echo "System files completed."
+
+    # last step zip up the final product to the output path
+    echo "Creating archive file as ${outfile} ..."
+    if $( tar --directory=${tmpdir} -cf ${outfile} ${venv}.sys.tar ${projectdir}.tar ); then
+        echo "File ${outfile} completed."
+    else
+        echo "Error: failed to create ${outfile}; check directory and file permissions."
+        echo "Warning: source files remain in ${tmpdir}"
+        exit 1
+    fi
+    rm -rf ${tmpdir}
+}
+
+unpack_venv() {
+    echo "Not yet."
 }
 
 # set tabs = 4
@@ -247,3 +234,4 @@ if [ "${no_prompt}" = "false" ]; then
     confirm_make
 fi
 pack_venv
+echo "Completed."
