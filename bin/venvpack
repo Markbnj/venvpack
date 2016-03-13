@@ -138,7 +138,12 @@ get_names_from_file() {
 }
 
 pack_venv() {
+    # get some temporary working space
     tmpdir=$(mktemp -d)
+    if [ ! -d "${tmpdir}" ]; then
+        echo "Error: could not get temporary directory to work in."
+        exit 1
+    fi
 
     # since we will not patch anything in the project files just tar them right
     # into the temp folder
@@ -156,38 +161,39 @@ pack_venv() {
 
     # now stage the venv files to tmp so we can patch the paths with a
     # placeholder
-    echo "Staging ${venv_root}${venv} to ${tmpdir} ..."
+    echo "Copying ${venv_root}${venv} to ${tmpdir} ..."
     if $( tar -c --directory=${venv_root} ./${venv} --exclude=*.pyc | tar -x --directory=${tmpdir} ); then
-
-        # patch the paths
-        echo "Patching paths in ${venv_root}${venv} ..."
-        files=$( grep ${venv_root} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
-        for file in $files; do
-            echo "Patching $file ..."
-            sed -i"" -e "s:${venv_root}:${venv_path_placer}:g" $file
-        done
-        files=$( grep ${projectbase} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
-        for file in $files; do
-            echo "Patching $file ..."
-            sed -i"" -e "s:${projectbase}:${project_path_placer}:g" $file
-        done
-
-        # tar into temp directory
-        echo "Packing ${tmpdir}/${venv} to ${tmpdir} ..."
-        if $( tar --directory=${tmpdir} -cf ${tmpdir}/${venv}.sys.tar ./${venv} ); then
-            echo "${tmpdir}/${venv} complete"
-            echo "Removing temporary files ..."
-            if $(rm -rf ${tmpdir}/${venv}); then
-                echo "Temporary files in ${tmpdir}/${venv} removed"
-            else
-                echo "Warning: unable to remove staging folder ${tmpdir}/${venv}"
-            fi
-        else
-            echo "Error: failed to pack ${tmpdir}/${venv}; check directory and file permissions."
-            exit 1
-        fi
+        echo "${venv_root}${venv} copied."
     else
         echo "Error: failed to copy ${venv_root}${venv} to ${tmpdir}; check directory and file permissions."
+        exit 1
+    fi
+
+    # patch the paths
+    echo "Patching paths in ${tmpdir}/${venv} ..."
+    files=$( grep ${venv_root} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
+    for file in $files; do
+        echo "Patching $file ..."
+        sed -i"" -e "s:${venv_root}:${venv_path_placer}:g" $file
+    done
+    files=$( grep ${projectbase} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
+    for file in $files; do
+        echo "Patching $file ..."
+        sed -i"" -e "s:${projectbase}:${project_path_placer}:g" $file
+    done
+
+    # tar into temp directory
+    echo "Packing ${tmpdir}/${venv} to ${tmpdir} ..."
+    if $( tar --directory=${tmpdir} -cf ${tmpdir}/${venv}.sys.tar ./${venv} ); then
+        echo "${tmpdir}/${venv} complete"
+        echo "Removing temporary files ..."
+        if $(rm -rf ${tmpdir}/${venv}); then
+            echo "Temporary files in ${tmpdir}/${venv} removed"
+        else
+            echo "Warning: unable to remove staging folder ${tmpdir}/${venv}"
+        fi
+    else
+        echo "Error: failed to pack ${tmpdir}/${venv}; check directory and file permissions."
         exit 1
     fi
 
@@ -206,7 +212,68 @@ pack_venv() {
 }
 
 unpack_venv() {
-    echo "Not yet."
+    # get some temporary working space
+    tmpdir=$(mktemp -d)
+    if [ ! -d "${tmpdir}" ]; then
+        echo "Error: could not get temporary directory to work in."
+        exit 1
+    fi
+
+    # untar the archive file into the temp directory
+    echo "Unpacking ${venv_file} to ${tmpdir} ..."
+    if $( tar --directory=${tmpdir} -xf ${venv_file} ); then
+        echo "$venv_file unpacked."
+    else
+        echo "Error: could not unpack ${venv_file} to ${tmpdir}. Check file and directory permissions."
+        exit 1
+    fi
+
+    # untar the project archive into the destination directory
+    echo "Unpacking ${tmpdir}/${projectdir}.tar to ${projectpath} ..."
+    if $( tar --directory=${projectbase} -xf ${tmpdir}/${projectdir}.tar ); then
+        echo "${projectpath} restored."
+
+    else
+        echo "Error: could not unpack ${projectdir}.tar to ${projectbase}. Check file and directory permissions."
+        exit 1
+    fi
+
+    # untar the venv system archive into the temp folder so we can patch
+    echo "Unpacking ${tmpdir}/${venv}.sys.tar to ${tmpdir} ..."
+    if $( tar --directory=${tmpdir} -xf ${tmpdir}/${venv}.sys.tar ); then
+        echo "${venv}.sys.tar unpacked."
+    else
+        echo "Error: could not unpack ${tmpdir}/${venv}.sys.tar to ${tmpdir}. Check file and directory permissions."
+        exit 1
+    fi
+
+    #patch the files
+    echo "Patching paths in ${tmpdir}/${venv} ..."
+    files=$( grep ${venv_path_placer} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
+    for file in $files; do
+        echo "Patching $file ..."
+        sed -i"" -e "s:${venv_path_placer}:${venv_root}:g" $file
+    done
+    files=$( grep ${project_path_placer} -l --recursive --exclude=*.pyc ${tmpdir}/${venv} )
+    for file in $files; do
+        echo "Patching $file ..."
+        sed -i"" -e "s:${project_path_placer}:${projectbase}:g" $file
+    done
+
+    #now move the folder
+    if $( mv ${tmpdir}/${venv} ${venv_root}/ ); then
+        echo "${tmpdir}/${venv} restored."
+    else
+        echo "Error: could not move ${tmpdir}/${venv} to ${venv_root}. Check file and directory permissions."
+        echo "Warning: project ${projectdir} has been restored to ${projectpath}. but the associated virtualenv"
+        echo "failed to restore."
+        echo "Warning: virtualenv files have been left in ${tmpdir}/${venv} for diagnostics or manual restore."
+        exit 1
+    fi
+
+    #activate if called for
+
+    echo "virtualenv ${venv} restored."
 }
 
 # set tabs = 4
@@ -305,6 +372,8 @@ echo "venvpack ${version}"
 echo
 
 if [ "${restore}" = "true" ]; then
+    # if we're restoring make sure we have a good venv file and
+    # then get the project/venv names
     if [ ! -f "${venv_file}" ]; then
         echo "Error: file '${venv_file}' not found."
         exit 1
