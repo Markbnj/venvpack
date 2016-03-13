@@ -273,6 +273,7 @@ unpack_venv() {
 
     #activate if called for
 
+    rm -rf ${tmpdir}
     echo "virtualenv ${venv} restored."
 }
 
