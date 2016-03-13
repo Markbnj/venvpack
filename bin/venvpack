@@ -11,11 +11,15 @@
 version="0.1.0-beta"
 venv_root="${VIRTUALENVWRAPPER_HOOK_DIR}/"
 venv=
+venv_file=
 projectpath=
 projectdir=
 projectbase=
 outfile=
 debug=false
+restore=false
+activate=false
+force=false
 cwd=$(pwd)
 no_prompt=false
 venv_path_placer="##VENVPACK_VENV##"
@@ -24,16 +28,20 @@ project_path_placer="##VENVPACK_PROJ##"
 show_help() {
     echo "venvpack ${version}"
     echo
-    echo "USAGE: venvpack [OPTION]... [VIRTUALENV]"
+    echo "USAGE: venvpack [OPTION]... [TARGET]"
     echo
     echo "Package a python virtualenv into a single transportable file that"
     echo "can be moved between file systems."
     echo
-    echo "If VIRTUALENV is not supplied and a virtualenv is currently active"
-    echo "then that venv will be used."
+    echo "In the normal mode of operation the script packages a virtualenv into"
+    echo "a single file, and TARGET refers to the virtual env name. If TARGET is"
+    echo "not supplied the current active virtualenv, if any, is packaged."
     echo
     echo "If the -o|--outfile option is not supplied the output file will be"
     echo "given the same name as the source virtualenv."
+    echo
+    echo "When the -r|--restore option is used to restore a virtualenv TARGET"
+    echo "is the path and name of the .venv file, and is required."
     echo
     echo "Example:"
     echo "    venvpack testenv"
@@ -41,9 +49,18 @@ show_help() {
     echo "Packages the testenv virtualenv into 'testenv.venv' in the current"
     echo "working directory."
     echo
+    echo "Example:"
+    echo "    venvpack --restore testenv.venv"
+    echo
+    echo "Restores the packaged virtualenv in testenv.venv into the local"
+    echo "filesystem."
+    echo
     echo "Options:"
+    printf "\t-a, --activate\t\t\tActivate the virtualenv after restoring.\n"
     printf "\t-d, --debug\t\t\t\tPrint diagnostic information after packaging.\n"
+    printf "\t-f, --force\t\t\t\tForce restoring even if architecture check fails.\n"
     printf "\t-o, --outfile=PATH\t\tSpecify the output file name and path.\n"
+    printf "\t-r, --restore\t\t\tRestore a packaged virtualenv.\n"
     printf "\t-y, --no-prompt\t\t\tDo not prompt for confirmation before building.\n"
     echo
     if [ ! -z "${1}" ]; then
@@ -56,29 +73,68 @@ show_help() {
 # check to be sure we were passed a valid venv, otherwise detect
 # the current active venv, set venv to the full path to the environment
 ensure_venv() {
-    if [ ! -z "${venv}" ]; then
-        if [ ! -d "${venv_root}${venv}" ]; then
-            echo "Error: virtual env '${venv}' not found at ${venv_root}"
+    if [ "${restore}" = "true" ]; then
+        if [ ! -d "${VIRTUALENVWRAPPER_HOOK_DIR}" ]; then
+            echo "Error: VIRTUALENVWRAPPER_HOOK_DIR does not point to the virtualenv root."
+            echo "Check that virtualenv is installed for this user."
             exit 1
         fi
-    else
-        if [ -z "${VIRTUAL_ENV}" ]; then
-            echo "Error: virtual env not specified and no active virtual environment"
-            echo "found."
-            echo
-            show_help 1
+        if [ -d "${outfile}" ]; then
+            projectbase=${outfile}
+        elif [ -d "${PROJECT_HOME}" ]; then
+            projectbase=${PROJECT_HOME}
         else
-            venv=$(basename ${VIRTUAL_ENV})
+            echo "Error: PROJECT_HOME is unset or does not point to a valid directory."
+            echo "Use the --outfile option to set the project base path."
+            exit 1
         fi
+        projectpath=${projectbase}/${projectdir}
+    else
+        if [ ! -z "${venv}" ]; then
+            if [ ! -d "${venv_root}${venv}" ]; then
+                echo "Error: virtual env '${venv}' not found at ${venv_root}"
+                exit 1
+            fi
+        else
+            if [ -z "${VIRTUAL_ENV}" ]; then
+                echo "Error: virtual env not specified and no active virtual environment"
+                echo "found."
+                echo
+                show_help 1
+            else
+                venv=$(basename ${VIRTUAL_ENV})
+            fi
+        fi
+        # get the project directory from the virtualenv
+        projectpath=$( cat ${venv_root}${venv}/${VIRTUALENVWRAPPER_PROJECT_FILENAME} )
+        if [ -z "${projectpath}" ]; then
+            echo "Error: could not find project home for env $venv"
+            exit 1
+        fi
+        projectdir=$( basename ${projectpath} )
+        projectbase=$( dirname ${projectpath} )
     fi
-    # get the project directory from the virtualenv
-    projectpath=$( cat ${venv_root}${venv}/${VIRTUALENVWRAPPER_PROJECT_FILENAME} )
-    if [ -z "${projectpath}" ]; then
-        echo "Error: could not find project home for env $venv"
+}
+
+# gets the project and venv names from the file we're restoring.
+get_names_from_file() {
+    files=($( tar --list -f ${venv_file} ))
+    if [ ${#files[@]} -gt 0 ]; then
+        for file in ${files[@]}; do
+            if [[ ${file} == *.sys.tar ]]; then
+                name_split=($(echo ${file} | tr "." "\n"))
+                venv=${name_split[0]}
+                unset name_split
+            else
+                name_split=($(echo ${file} | tr "." "\n"))
+                projectdir=${name_split[0]}
+                unset name_split
+            fi
+        done
+    else
+        echo "Error: could not list files in ${venv_file}. File may be corrupt or path may be incorrect."
         exit 1
     fi
-    projectdir=$( basename ${projectpath} )
-    projectbase=$( dirname ${projectpath} )
 }
 
 pack_venv() {
@@ -157,7 +213,7 @@ unpack_venv() {
 tabs 4
 
 # parse out the options
-OPTS=$(getopt -o do:y --long outfile: -- "$@")
+OPTS=$(getopt -o adfho:ry --long activate,force,help,outfile:,restore -- "$@")
 if [[ $? -ne 0 ]]; then
     echo "Error: failed to parse command line options."
     exit 1
@@ -166,13 +222,28 @@ fi
 eval set -- "$OPTS"
 while true; do
     case "$1" in
+        -a|--activate)
+            activate=true
+            shift
+            ;;
         -d|--debug)
             debug=true
             shift
             ;;
+        -f|--force)
+            force=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            ;;
         -o|--outfile)
             outfile="$2"
             shift; shift
+            ;;
+        -r|--restore)
+            restore=true
+            shift
             ;;
         -y|--no-prompt)
             no_prompt=true
@@ -181,7 +252,11 @@ while true; do
         --)
             shift
             if [ ! -z "$1" ]; then
-                venv="$1"
+                if [ "${restore}" = true ]; then
+                    venv_file="$1"
+                else
+                    venv="$1"
+                fi
             fi
             break
             ;;
@@ -194,7 +269,7 @@ done
 
 # request the user to confirm the make command and exit on any
 # choice other than yes.
-confirm_make() {
+confirm_pack() {
     echo "Create virtualenv package"
     echo "----------------------------------"
     echo "venv name: ${venv}"
@@ -209,29 +284,60 @@ confirm_make() {
     esac
 }
 
-echo
+confirm_unpack() {
+    echo "Restore virtualenv"
+    echo "----------------------------------"
+    echo "venv file: ${venv_file}"
+    echo "venv name: ${venv}"
+    echo "venv path: ${venv_root}${venv}"
+    echo "project name: ${projectdir}"
+    echo "project path: ${projectpath}"
+    echo "Activate: ${activate}"
+    echo
+    read -p "Restore virtualenv now (y/N)?" choice
+    case "$choice" in
+        y|Y) return;;
+        *) exit 0;;
+    esac
+}
+
 echo "venvpack ${version}"
 echo
-ensure_venv
 
-# figure out the package name
-if [ -z "${outfile}" ]; then
-    outfile="${venv}.venv"
+if [ "${restore}" = "true" ]; then
+    if [ ! -f "${venv_file}" ]; then
+        echo "Error: file '${venv_file}' not found."
+        exit 1
+    fi
+    get_names_from_file
+    ensure_venv
+    if [ "${no_prompt}" = "false" ]; then
+        confirm_unpack
+    fi
+    unpack_venv
+
 else
-    if [ -d "$outfile" ]; then
-        if [[ ${outfile} != "*/" ]]; then
-            outfile="${outfile}/${venv}.venv"
-        else
-            outfile="${outfile}${venv}.venv"
-        fi
+    ensure_venv
+
+    # figure out the package name
+    if [ -z "${outfile}" ]; then
+        outfile="${venv}.venv"
     else
-        if [[ ${outfile} != "*.*" ]]; then
-            outfile="${outfile}.venv"
+        if [ -d "$outfile" ]; then
+            if [[ ${outfile} != "*/" ]]; then
+                outfile="${outfile}/${venv}.venv"
+            else
+                outfile="${outfile}${venv}.venv"
+            fi
+        else
+            if [[ ${outfile} != "*.*" ]]; then
+                outfile="${outfile}.venv"
+            fi
         fi
     fi
+    if [ "${no_prompt}" = "false" ]; then
+        confirm_pack
+    fi
+    pack_venv
 fi
-if [ "${no_prompt}" = "false" ]; then
-    confirm_make
-fi
-pack_venv
 echo "Completed."
