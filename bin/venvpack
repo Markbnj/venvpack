@@ -18,7 +18,6 @@ projectbase=
 outfile=
 debug=false
 restore=false
-activate=false
 force=false
 cwd=$(pwd)
 no_prompt=false
@@ -56,7 +55,6 @@ show_help() {
     echo "filesystem."
     echo
     echo "Options:"
-    printf "\t-a, --activate\t\t\tActivate the virtualenv after restoring.\n"
     printf "\t-d, --debug\t\t\t\tPrint diagnostic information after packaging.\n"
     printf "\t-f, --force\t\t\t\tForce restoring even if architecture check fails.\n"
     printf "\t-o, --outfile=PATH\t\tSpecify the output file name and path.\n"
@@ -271,8 +269,6 @@ unpack_venv() {
         exit 1
     fi
 
-    #activate if called for
-
     rm -rf ${tmpdir}
     echo "virtualenv ${venv} restored."
 }
@@ -281,7 +277,7 @@ unpack_venv() {
 tabs 4
 
 # parse out the options
-OPTS=$(getopt -o adfho:ry --long activate,force,help,outfile:,restore -- "$@")
+OPTS=$(getopt -o dfho:ry --long force,help,outfile:,restore -- "$@")
 if [[ $? -ne 0 ]]; then
     echo "Error: failed to parse command line options."
     exit 1
@@ -290,10 +286,6 @@ fi
 eval set -- "$OPTS"
 while true; do
     case "$1" in
-        -a|--activate)
-            activate=true
-            shift
-            ;;
         -d|--debug)
             debug=true
             shift
@@ -360,7 +352,6 @@ confirm_unpack() {
     echo "venv path: ${venv_root}${venv}"
     echo "project name: ${projectdir}"
     echo "project path: ${projectpath}"
-    echo "Activate: ${activate}"
     echo
     read -p "Restore virtualenv now (y/N)?" choice
     case "$choice" in
