@@ -15,7 +15,7 @@ venv_file=
 project_path=
 project_dir=
 project_base=
-outfile=
+out_file=
 debug=false
 restore=false
 force=false
@@ -69,6 +69,43 @@ show_help() {
     fi
 }
 
+# check to make sure the external commands that we're going to use are
+# installed. Other than docker the rest of these should be available on
+# any system that has bash, but its possible this gets run inside a
+# minimal container or something, and in any case might as well check.
+ensure_prereqs() {
+    if ! hash getopt 2>/dev/null; then
+        echo "Error: 'getopt' command not found."
+        echo "This program requires GNU getopt to be installed."
+        echo "See http://linux.die.net/man/1/getopt for more information."
+        exit 1
+    fi
+    if ! hash tar 2>/dev/null; then
+        echo "Error: 'tar' command not found."
+        echo "This program requires tar to be installed."
+        echo "See http://linux.die.net/man/1/tar for more information."
+        exit 1
+    fi
+    if ! hash gzip 2>/dev/null; then
+        echo "Error: 'gzip' command not found."
+        echo "This program requires gzip to be installed."
+        echo "See http://linux.die.net/man/1/gzip for more information."
+        exit 1
+    fi
+    if ! hash grep 2>/dev/null; then
+        echo "Error: 'grep' command not found."
+        echo "This program requires grep to be installed."
+        echo "See http://linux.die.net/man/1/grep for more information."
+        exit 1
+    fi
+    if ! hash sed 2>/dev/null; then
+        echo "Error: 'sed' command not found."
+        echo "This program requires sed to be installed."
+        echo "See http://linux.die.net/man/1/sed for more information."
+        exit 1
+    fi
+}
+
 # check to be sure we were passed a valid venv, otherwise detect
 # the current active venv, set venv to the full path to the environment
 ensure_venv() {
@@ -78,13 +115,13 @@ ensure_venv() {
             echo "Check that virtualenv is installed for this user."
             exit 1
         fi
-        if [ -d "${outfile}" ]; then
-            project_base=${outfile}
+        if [ -d "${out_file}" ]; then
+            project_base=${out_file}
         elif [ -d "${PROJECT_HOME}" ]; then
             project_base=${PROJECT_HOME}
         else
             echo "Error: PROJECT_HOME is unset or does not point to a valid directory."
-            echo "Use the --outfile option to set the project base path."
+            echo "Use the --out_file option to set the project base path."
             exit 1
         fi
         project_path=${project_base}/${project_dir}
@@ -199,11 +236,11 @@ pack_venv() {
     echo "System files completed."
 
     # last step zip up the final product to the output path
-    echo "Creating archive file as ${outfile} ..."
-    if $( tar --directory=${tmp_dir} -cf ${outfile} ${venv}.sys.tar ${project_dir}.tar ); then
-        echo "File ${outfile} completed."
+    echo "Creating archive file as ${out_file} ..."
+    if $( tar --directory=${tmp_dir} -cf ${out_file} ${venv}.sys.tar ${project_dir}.tar ); then
+        echo "File ${out_file} completed."
     else
-        echo "Error: failed to create ${outfile}; check directory and file permissions."
+        echo "Error: failed to create ${out_file}; check directory and file permissions."
         echo "Warning: source files remain in ${tmp_dir}"
         exit 1
     fi
@@ -299,7 +336,7 @@ while true; do
             show_help
             ;;
         -o|--outfile)
-            outfile="$2"
+            out_file="$2"
             shift; shift
             ;;
         -r|--restore)
@@ -336,7 +373,7 @@ confirm_pack() {
     echo "venv name: ${venv}"
     echo "venv path: ${venv_root}${venv}"
     echo "project path: ${project_path}"
-    echo "package name: ${outfile}"
+    echo "package name: ${out_file}"
     echo
     read -p "Create venv package now (y/N)?" choice
     case "$choice" in
@@ -364,6 +401,7 @@ confirm_unpack() {
 echo "venvpack ${version}"
 echo
 
+ensure_prereqs
 if [ "${restore}" = "true" ]; then
     # if we're restoring make sure we have a good venv file and
     # then get the project/venv names
@@ -382,18 +420,18 @@ else
     ensure_venv
 
     # figure out the package name
-    if [ -z "${outfile}" ]; then
-        outfile="${venv}.venv"
+    if [ -z "${out_file}" ]; then
+        out_file="${venv}.venv"
     else
-        if [ -d "$outfile" ]; then
-            if [[ ${outfile} != "*/" ]]; then
-                outfile="${outfile}/${venv}.venv"
+        if [ -d "$out_file" ]; then
+            if [[ ${out_file} != "*/" ]]; then
+                out_file="${out_file}/${venv}.venv"
             else
-                outfile="${outfile}${venv}.venv"
+                out_file="${out_file}${venv}.venv"
             fi
         else
-            if [[ ${outfile} != "*.*" ]]; then
-                outfile="${outfile}.venv"
+            if [[ ${out_file} != "*.*" ]]; then
+                out_file="${out_file}.venv"
             fi
         fi
     fi
