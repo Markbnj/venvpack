@@ -112,9 +112,13 @@ ensure_prereqs() {
 # the current active venv, set venv to the full path to the environment
 ensure_venv() {
     if [ "${restore}" = "true" ]; then
-        if [ ! -d "${VIRTUALENVWRAPPER_HOOK_DIR}" ]; then
+        if [ ! -d "${venv_root}" ]; then
             echo "Error: VIRTUALENVWRAPPER_HOOK_DIR does not point to the virtualenv root."
             echo "Check that virtualenv is installed for this user."
+            exit 1
+        fi
+        if [ -d "${venv_root}${venv}" ]; then
+            echo "Error: virtualenv ${venv_root}${venv} already exists."
             exit 1
         fi
         if [ -d "${out_file}" ]; then
@@ -123,10 +127,14 @@ ensure_venv() {
             project_base=${PROJECT_HOME}
         else
             echo "Error: PROJECT_HOME is unset or does not point to a valid directory."
-            echo "Use the --out_file option to set the project base path."
+            echo "Use the --outfile option to set the project base path."
             exit 1
         fi
         project_path=${project_base}/${project_dir}
+        if [ -d "${project_path}" ]; then
+            echo "Error: project ${project_path} already exists."
+            exit 1
+        fi
     else
         if [ ! -z "${venv}" ]; then
             if [ ! -d "${venv_root}${venv}" ]; then
