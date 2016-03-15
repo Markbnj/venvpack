@@ -24,6 +24,7 @@ no_prompt=false
 venv_path_placer="##VENVPACK_VENV##"
 project_path_placer="##VENVPACK_PROJ##"
 tmp_dir=
+no_cleanup_on_err=false
 
 show_help() {
     echo "venvpack ${version}"
@@ -56,6 +57,7 @@ show_help() {
     echo "filesystem."
     echo
     echo "Options:"
+    printf "\t-c, --no-cleanup-on-error\t\tDo not remove temporary files on error.\n"
     printf "\t-d, --debug\t\t\t\tPrint diagnostic information after packaging.\n"
     printf "\t-f, --force\t\t\t\tForce restoring even if architecture check fails.\n"
     printf "\t-o, --outfile=PATH\t\tSpecify the output file name and path.\n"
@@ -173,6 +175,7 @@ get_names_from_file() {
     fi
 }
 
+# creates a .venv archive file from a virtualenv python project
 pack_venv() {
     # get some temporary working space
     tmp_dir=$(mktemp -d)
@@ -247,6 +250,7 @@ pack_venv() {
     rm -rf ${tmp_dir}
 }
 
+# restores a virtualenv python project from a .venv file
 unpack_venv() {
     # get some temporary working space
     tmp_dir=$(mktemp -d)
@@ -297,8 +301,9 @@ unpack_venv() {
     done
 
     #now move the folder
-    if $( mv ${tmp_dir}/${venv} ${venv_root}/ ); then
-        echo "${tmp_dir}/${venv} restored."
+    echo "Moving ${tmp_dir}/${venv} to ${venv_root} ..."
+    if $( mv ${tmp_dir}/${venv} ${venv_root} ); then
+        echo "${tmp_dir}/${venv} moved."
     else
         echo "Error: could not move ${tmp_dir}/${venv} to ${venv_root}. Check file and directory permissions."
         echo "Warning: project ${project_dir} has been restored to ${project_path}. but the associated virtualenv"
@@ -306,6 +311,20 @@ unpack_venv() {
         echo "Warning: virtualenv files have been left in ${tmp_dir}/${venv} for diagnostics or manual restore."
         exit 1
     fi
+
+    # dockerfile+=("# fix virtualenv symlinks")
+    # dockerfile+=("RUN rm ${lib_path}${venv}/local/bin && \\ ")
+    # dockerfile+=("ln -s ${lib_path}${venv}/bin ${lib_path}${venv}/local/bin && \\ ")
+    # dockerfile+=("rm ${lib_path}${venv}/local/include && \\ ")
+    # dockerfile+=("ln -s ${lib_path}${venv}/include ${lib_path}${venv}/local/include && \\ ")
+    # dockerfile+=("rm ${lib_path}${venv}/local/lib && \\ ")
+    # dockerfile+=("ln -s ${lib_path}${venv}/lib ${lib_path}${venv}/local/lib")
+
+    # fix up the symlinks in local/
+    echo "Fixing local/ symlinks ..."
+    rm ${venv_root}${venv}/local/bin && ln -s ${venv_root}${venv}/bin ${venv_root}${venv}/local/bin && \
+    rm ${venv_root}${venv}/local/include && ln -s ${venv_root}${venv}/include ${venv_root}${venv}/local/include && \
+    rm ${venv_root}${venv}/local/lib && ln -s ${venv_root}${venv}/lib ${venv_root}${venv}/local/lib
 
     rm -rf ${tmp_dir}
     echo "virtualenv ${venv} restored."
@@ -315,7 +334,7 @@ unpack_venv() {
 tabs 4
 
 # parse out the options
-OPTS=$(getopt -o dfho:ry --long force,help,outfile:,restore -- "$@")
+OPTS=$(getopt -o cdfho:ry --long force,help,no-cleanup-on-error,outfile:,restore -- "$@")
 if [[ $? -ne 0 ]]; then
     echo "Error: failed to parse command line options."
     exit 1
@@ -324,6 +343,10 @@ fi
 eval set -- "$OPTS"
 while true; do
     case "$1" in
+        -c|--no-cleanup-on-error)
+            no_cleanup_on_err=true
+            shift
+            ;;
         -d|--debug)
             debug=true
             shift
