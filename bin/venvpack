@@ -24,7 +24,7 @@ no_prompt=false
 venv_path_placer="##VENVPACK_VENV##"
 project_path_placer="##VENVPACK_PROJ##"
 tmp_dir=
-no_cleanup_on_err=false
+no_clean_on_err=false
 
 show_help() {
     echo "venvpack ${version}"
@@ -175,6 +175,51 @@ get_names_from_file() {
     fi
 }
 
+# the normal behavior of the script is to clean up after itself on
+# error, removing any temporary files or partially reconstructed
+# venv, etc. This function handles that conditionally based on
+# current settings.
+conditional_cleanup_on_error() {
+    if [ -d "${tmp_dir}" ]; then
+        if [ "${no_clean_on_err}" = "false" ]; then
+            echo "Removing temporary files in ${tmp_dir} ..."
+            if $(rm -rf ${tmp_dir}); then
+                echo "Temporary files removed."
+            else
+                echo "Warning: unable to remove ${tmp_dir}"
+            fi
+        else
+            echo "Leaving temporary files in ${tmp_dir}."
+        fi
+    fi
+    if [ "${restore}" = "true" ]; then
+        if [ -d "${venv_root}${venv}" ]; then
+            if [ "${no_clean_on_err}" = "false" ]; then
+                echo "Removing virtualenv files in ${venv_root}${venv} ..."
+                if $(rm -rf ${venv_root}${venv}); then
+                    echo "virtualenv files removed."
+                else
+                    echo "Warning: unable to remove ${venv_root}${venv}"
+                fi
+            else
+                echo "Leaving virtualenv files in ${venv_root}${venv}."
+            fi
+        fi
+        if [ -d "${project_path}" ]; then
+            if [ "${no_clean_on_err}" = "false" ]; then
+                echo "Removing project files in ${project_path} ..."
+                if $(rm -rf ${project_path}); then
+                    echo "Project files removed."
+                else
+                    echo "Warning: unable to remove ${project_path}"
+                fi
+            else
+                echo "Leaving project files in ${project_path}."
+            fi
+        fi
+    fi
+}
+
 # creates a .venv archive file from a virtualenv python project
 pack_venv() {
     # get some temporary working space
@@ -192,6 +237,7 @@ pack_venv() {
             echo "${project_path} complete"
         else
             echo "Error: failed to archive ${project_path} to ${tmp_dir}/${project_dir}; check directory and file permissions."
+            conditional_cleanup_on_error
             exit 1
         fi
     else
@@ -205,6 +251,7 @@ pack_venv() {
         echo "${venv_root}${venv} copied."
     else
         echo "Error: failed to copy ${venv_root}${venv} to ${tmp_dir}; check directory and file permissions."
+        conditional_cleanup_on_error
         exit 1
     fi
 
@@ -212,13 +259,25 @@ pack_venv() {
     echo "Patching paths in ${tmp_dir}/${venv} ..."
     files=$( grep ${venv_root} -l --recursive --exclude=*.pyc ${tmp_dir}/${venv} )
     for file in $files; do
-        echo "Patching $file ..."
-        sed -i"" -e "s:${venv_root}:${venv_path_placer}:g" $file
+        echo "Patching ${file} ..."
+        if $(sed -i"" -e "s:${venv_root}:${venv_path_placer}:g" ${file}); then
+            echo "${file} patched."
+        else
+            echo "Error: could not patch ${file}."
+            conditional_cleanup_on_error
+            exit 1
+        fi
     done
     files=$( grep ${project_base} -l --recursive --exclude=*.pyc ${tmp_dir}/${venv} )
     for file in $files; do
-        echo "Patching $file ..."
-        sed -i"" -e "s:${project_base}:${project_path_placer}:g" $file
+        echo "Patching ${file} ..."
+        if $(sed -i"" -e "s:${project_base}:${project_path_placer}:g" ${file}); then
+            echo "${file} patched."
+        else
+            echo "Error: could not patch ${file}."
+            conditional_cleanup_on_error
+            exit 1
+        fi
     done
 
     # tar into temp directory
@@ -233,6 +292,7 @@ pack_venv() {
         fi
     else
         echo "Error: failed to pack ${tmp_dir}/${venv}; check directory and file permissions."
+        conditional_cleanup_on_error
         exit 1
     fi
 
@@ -244,10 +304,16 @@ pack_venv() {
         echo "File ${out_file} completed."
     else
         echo "Error: failed to create ${out_file}; check directory and file permissions."
-        echo "Warning: source files remain in ${tmp_dir}"
+        conditional_cleanup_on_error
         exit 1
     fi
-    rm -rf ${tmp_dir}
+
+    echo "Removing temporary files ..."
+    if $(rm -rf ${tmp_dir}); then
+        echo "Temporary files removed."
+    else
+        echo "Warning: unable to remove ${tmp_dir}"
+    fi
 }
 
 # restores a virtualenv python project from a .venv file
@@ -265,6 +331,7 @@ unpack_venv() {
         echo "$venv_file unpacked."
     else
         echo "Error: could not unpack ${venv_file} to ${tmp_dir}. Check file and directory permissions."
+        conditional_cleanup_on_error
         exit 1
     fi
 
@@ -275,6 +342,7 @@ unpack_venv() {
 
     else
         echo "Error: could not unpack ${project_dir}.tar to ${project_base}. Check file and directory permissions."
+        conditional_cleanup_on_error
         exit 1
     fi
 
@@ -284,6 +352,7 @@ unpack_venv() {
         echo "${venv}.sys.tar unpacked."
     else
         echo "Error: could not unpack ${tmp_dir}/${venv}.sys.tar to ${tmp_dir}. Check file and directory permissions."
+        conditional_cleanup_on_error
         exit 1
     fi
 
@@ -291,13 +360,25 @@ unpack_venv() {
     echo "Patching paths in ${tmp_dir}/${venv} ..."
     files=$( grep ${venv_path_placer} -l --recursive --exclude=*.pyc ${tmp_dir}/${venv} )
     for file in $files; do
-        echo "Patching $file ..."
-        sed -i"" -e "s:${venv_path_placer}:${venv_root}:g" $file
+        echo "Patching ${file} ..."
+        if $(sed -i"" -e "s:${venv_path_placer}:${venv_root}:g" ${file}); then
+            echo "${file} patched."
+        else
+            echo "Error: could not patch ${file}."
+            conditional_cleanup_on_error
+            exit 1
+        fi
     done
     files=$( grep ${project_path_placer} -l --recursive --exclude=*.pyc ${tmp_dir}/${venv} )
     for file in $files; do
-        echo "Patching $file ..."
-        sed -i"" -e "s:${project_path_placer}:${project_base}:g" $file
+        echo "Patching ${file} ..."
+        if $(sed -i"" -e "s:${project_path_placer}:${project_base}:g" ${file}); then
+            echo "${file} patched."
+        else
+            echo "Error: could not patch ${file}."
+            conditional_cleanup_on_error
+            exit 1
+        fi
     done
 
     #now move the folder
@@ -306,27 +387,30 @@ unpack_venv() {
         echo "${tmp_dir}/${venv} moved."
     else
         echo "Error: could not move ${tmp_dir}/${venv} to ${venv_root}. Check file and directory permissions."
-        echo "Warning: project ${project_dir} has been restored to ${project_path}. but the associated virtualenv"
-        echo "failed to restore."
-        echo "Warning: virtualenv files have been left in ${tmp_dir}/${venv} for diagnostics or manual restore."
+        conditional_cleanup_on_error
         exit 1
     fi
-
-    # dockerfile+=("# fix virtualenv symlinks")
-    # dockerfile+=("RUN rm ${lib_path}${venv}/local/bin && \\ ")
-    # dockerfile+=("ln -s ${lib_path}${venv}/bin ${lib_path}${venv}/local/bin && \\ ")
-    # dockerfile+=("rm ${lib_path}${venv}/local/include && \\ ")
-    # dockerfile+=("ln -s ${lib_path}${venv}/include ${lib_path}${venv}/local/include && \\ ")
-    # dockerfile+=("rm ${lib_path}${venv}/local/lib && \\ ")
-    # dockerfile+=("ln -s ${lib_path}${venv}/lib ${lib_path}${venv}/local/lib")
 
     # fix up the symlinks in local/
     echo "Fixing local/ symlinks ..."
     rm ${venv_root}${venv}/local/bin && ln -s ${venv_root}${venv}/bin ${venv_root}${venv}/local/bin && \
     rm ${venv_root}${venv}/local/include && ln -s ${venv_root}${venv}/include ${venv_root}${venv}/local/include && \
     rm ${venv_root}${venv}/local/lib && ln -s ${venv_root}${venv}/lib ${venv_root}${venv}/local/lib
+    if [ $? = 0 ]; then
+        echo "local/ symlinks updated."
+    else
+        echo "Error: failed to update local/ symlinks."
+        conditional_cleanup_on_error
+        exit 1
+    fi
 
-    rm -rf ${tmp_dir}
+    echo "Removing temporary files ..."
+    if $(rm -rf ${tmp_dir}); then
+        echo "Temporary files removed."
+    else
+        echo "Warning: unable to remove ${tmp_dir}"
+    fi
+
     echo "virtualenv ${venv} restored."
 }
 
@@ -344,7 +428,7 @@ eval set -- "$OPTS"
 while true; do
     case "$1" in
         -c|--no-cleanup-on-error)
-            no_cleanup_on_err=true
+            no_clean_on_err=true
             shift
             ;;
         -d|--debug)
