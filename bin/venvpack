@@ -183,42 +183,6 @@ get_names_from_file() {
     fi
 }
 
-# when restoring, performs a check after the virtualenv has been
-# unpacked into temp, looking at the symlinks in lib/ to be sure
-# that they are resolvable. If not, and if the --force option is
-# not used, the script exits with an error.
-check_architecture() {
-    echo "Checking python installation compatibility ..."
-    local check_path=${tmp_dir}/${venv}/lib
-    local target=
-    local missing=false
-    pydirs=($(find ${check_path} -maxdepth 1 -type d -exec echo {} \;))
-    for pydir in ${pydirs[@]}; do
-        if [[ ${pydir} = *python* ]]; then
-            pyfiles=($(find ${pydir} -type l -exec echo {} \;))
-            for pyfile in ${pyfiles[@]}; do
-                if [ ! -f ${pyfile} ] && [ ! -d ${pyfile} ]; then
-                    target=$(readlink -m ${pyfile})
-                    echo "Warning: link $pyfile should target ${target} but the file/directory is missing."
-                    missing=true
-                fi
-            done
-        fi
-    done
-    if [ "${missing}" = "true" ]; then
-        echo "Warning: the virtualenv links to one or more core python files that are missing."
-        if [ "${force}" = "true" ]; then
-            echo "--force option in effect; continuing restore of ${venv}."
-        else
-            echo "Aborting restore of ${venv}. Use the --force option to force restore."
-            conditional_cleanup_on_error
-            exit 1
-        fi
-    else
-        echo "System python install is compatible with virtualenv ${venv}."
-    fi
-}
-
 # the normal behavior of the script is to clean up after itself on
 # error, removing any temporary files or partially reconstructed
 # venv, etc. This function handles that conditionally based on
@@ -261,6 +225,42 @@ conditional_cleanup_on_error() {
                 echo "Leaving project files in ${project_path}."
             fi
         fi
+    fi
+}
+
+# when restoring, performs a check after the virtualenv has been
+# unpacked into temp, looking at the symlinks in lib/ to be sure
+# that they are resolvable. If not, and if the --force option is
+# not used, the script exits with an error.
+check_architecture() {
+    echo "Checking python installation compatibility ..."
+    local check_path=${tmp_dir}/${venv}/lib
+    local target=
+    local missing=false
+    pydirs=($(find ${check_path} -maxdepth 1 -type d -exec echo {} \;))
+    for pydir in ${pydirs[@]}; do
+        if [[ ${pydir} = *python* ]]; then
+            pyfiles=($(find ${pydir} -type l -exec echo {} \;))
+            for pyfile in ${pyfiles[@]}; do
+                if [ ! -f ${pyfile} ] && [ ! -d ${pyfile} ]; then
+                    target=$(readlink -m ${pyfile})
+                    echo "Warning: link $pyfile should target ${target} but the file/directory is missing."
+                    missing=true
+                fi
+            done
+        fi
+    done
+    if [ "${missing}" = "true" ]; then
+        echo "Warning: the virtualenv links to one or more core python files that are missing."
+        if [ "${force}" = "true" ]; then
+            echo "--force option in effect; continuing restore of ${venv}."
+        else
+            echo "Aborting restore of ${venv}. Use the --force option to force restore."
+            conditional_cleanup_on_error
+            exit 1
+        fi
+    else
+        echo "System python install is compatible with virtualenv ${venv}."
     fi
 }
 
